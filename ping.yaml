@@ -1,20 +1,183 @@
 openapi: 3.0.1
 info:
-  title: Ping-2
-  version: "0.0.2"
+  title: Shoper Products & Stock API
+  version: 2.0.0
+  description: >
+    Specyfikacja pozwala najpierw pobrać token JWT przez Basic Auth
+    (ścieżka /auth), a następnie wykonywać zapytania z nagłówkiem
+    Bearer do zasobów listy produktów i szczegółów (cena + stan).
 
 servers:
   - url: https://sklep621938.shoparena.pl/webapi/rest
 
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: >
+        Używane tylko na endpoint /auth do wymiany login:hasło na token.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Token JWT pobrany z /auth; dołączany jako Authorization: Bearer {token}
+
+  schemas:
+    Price:
+      type: object
+      properties:
+        price:
+          type: string
+          example: "139.00"
+        comp_promo_price:
+          type: string
+          example: "129.00"
+        currency:
+          type: string
+          example: PLN
+
+    StockInfo:
+      type: object
+      properties:
+        stock:
+          type: integer
+          example: 179
+        price:
+          $ref: '#/components/schemas/Price'
+
+    Product:
+      type: object
+      properties:
+        product_id:
+          type: integer
+          example: 295
+        code:
+          type: string
+          example: "20150805151646"
+        name:
+          type: string
+          example: "Płytki rustykalne Peronda FS 45×45"
+        stock:
+          $ref: '#/components/schemas/StockInfo'
+
+    ProductList:
+      type: object
+      properties:
+        count:
+          type: integer
+          example: 55661
+        pages:
+          type: integer
+          example: 27831
+        page:
+          type: integer
+          example: 1
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+
 paths:
   /auth:
     post:
-      operationId: auth
-      summary: Token
+      operationId: getToken
+      summary: Pobierz token JWT
+      security:
+        - basicAuth: []
       responses:
         "200":
-          description: OK
+          description: Token JWT
           content:
             application/json:
               schema:
                 type: object
+                properties:
+                  access_token:
+                    type: string
+                    description: Token do użycia w BearerAuth
+                  expires_in:
+                    type: integer
+                    description: Czas życia tokena w sekundach
+
+  /products:
+    get:
+      operationId: getProducts
+      summary: Lista produktów z cenami i stanami
+      description: >
+        Zwraca paginowaną listę produktów.
+        W parametrze include=stock dołączone są ceny i dostępność.
+        Filtruj po nazwie kodu przez filters[name]=LIKE:fraza.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: filters[name]
+          description: Filtr nazwy lub kodu (np. LIKE:treverkfusion)
+          schema:
+            type: string
+        - in: query
+          name: include
+          description: Wartość "stock" aby dołączyć ceny i stany
+          schema:
+            type: string
+            enum: [stock]
+            default: stock
+        - in: query
+          name: limit
+          description: Liczba elementów na stronę (max 50)
+          schema:
+            type: integer
+            default: 20
+            maximum: 50
+        - in: query
+          name: page
+          description: Numer strony (1-based)
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: Lista produktów
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductList'
+        "401":
+          description: Brak autoryzacji — niepoprawny token
+
+  /products/{id}:
+    get:
+      operationId: getProductById
+      summary: Szczegóły produktu (cena + stan)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          description: ID produktu
+          schema:
+            type: integer
+        - in: query
+          name: include
+          description: Wartość "stock" aby dołączyć ceny i stany
+          schema:
+            type: string
+            enum: [stock]
+            default: stock
+      responses:
+        "200":
+          description: Szczegóły produktu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        "401":
+          description: Brak autoryzacji — niepoprawny token
+        "404":
+          description: Nie znaleziono produktu o podanym ID
+
+security:
+  - bearerAuth: []
